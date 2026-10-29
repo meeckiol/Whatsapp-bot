@@ -5,6 +5,7 @@ Bot WhatsApp complet avec support :
 2. **Réponses automatiques personnalisées** configurables via JSON ou commandes de discussion.
 3. **Intégration d'un LLM / IA** (Google Gemini ou Ollama en local).
 4. **Alertes et rappels programmés** (minuteries ponctuelles et alertes quotidiennes).
+5. **Compréhension et écoute des vocaux (Audios)** : Le bot écoute les messages vocaux reçus et y répond directement comme un être humain (avec commande `!transcrire` pour obtenir la transcription texte).
 
 ---
 
@@ -96,10 +97,12 @@ Envoyez ces commandes depuis WhatsApp (en discussion privée avec le bot, dans u
 - `!info` : Donne des informations sur le chat (ID, expéditeur, type).
 - `!echo <texte>` : Répète le texte.
 
-### 🔹 Intelligence Artificielle
+### 🔹 Intelligence Artificielle & Messages Vocaux (Audio)
 - `!ai <votre question>` : Pose une question au modèle de langage.
-- `!aimode on` : Active la réponse automatique de l'IA à tous les messages privés entrants.
+- `!aimode on` : Active la réponse automatique de l'IA (textes et messages vocaux).
 - `!aimode off` : Désactive le mode IA automatique.
+- `!transcrire` : Répondez à n'importe quel message vocal avec cette commande pour obtenir sa transcription écrite mot à mot.
+- **Écoute automatique des vocaux** : Quand `aimode` est activé, si quelqu'un vous envoie une note vocale, le bot écoute l'audio et répond directement au sujet dont la personne parle !
 
 ### 🔹 Alertes et Rappels Programmés
 - `!rappel <durée> <message>` : Programme un rappel ponctuel.

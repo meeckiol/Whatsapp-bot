@@ -1,14 +1,15 @@
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
-  Browsers
+  Browsers,
+  downloadMediaMessage
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import dotenv from 'dotenv';
 import { promptAuthMode } from './services/auth.js';
 import { autoReplies } from './services/replies.js';
-import { askAI, askAsHuman } from './services/ai.js';
+import { askAI, askAsHuman, askAsHumanWithAudio, transcribeAudio } from './services/ai.js';
 import { scheduler } from './services/scheduler.js';
 
 dotenv.config();
@@ -113,6 +114,39 @@ async function startWhatsAppBot() {
       const remoteJid = msg.key.remoteJid;
       const isFromMe = msg.key.fromMe;
       const isGroup = remoteJid.endsWith('@g.us');
+      const sender = msg.pushName || (isFromMe ? 'Moi' : remoteJid.split('@')[0]);
+
+      // Détection des messages vocaux / audios
+      const audioMessage = msg.message.audioMessage;
+      if (audioMessage) {
+        console.log(`🎙️ [${sender}${isGroup ? ' @ Groupe' : ''}] Message vocal (${audioMessage.seconds || 0}s)`);
+
+        if (!isFromMe && aiAutoReplyEnabled && !isGroup) {
+          try {
+            await sock.sendPresenceUpdate('recording', remoteJid);
+            const audioBuffer = await downloadMediaMessage(
+              msg,
+              'buffer',
+              {},
+              { logger, reuploadRequest: sock.updateMediaMessage }
+            );
+
+            const aiAnswer = await askAsHumanWithAudio(
+              audioBuffer,
+              audioMessage.mimetype,
+              remoteJid,
+              sender
+            );
+
+            if (aiAnswer) {
+              await sock.sendMessage(remoteJid, { text: aiAnswer }, { quoted: msg });
+            }
+          } catch (err) {
+            console.error('Erreur traitement audio entrant :', err.message);
+          }
+        }
+        continue;
+      }
 
       // Récupération du texte
       const rawText =
@@ -123,7 +157,6 @@ async function startWhatsAppBot() {
         '';
 
       const text = rawText.trim();
-      const sender = msg.pushName || (isFromMe ? 'Moi' : remoteJid.split('@')[0]);
 
       if (text) {
         console.log(`📩 [${sender}${isGroup ? ' @ Groupe' : ''}] : ${text}`);
@@ -192,6 +225,49 @@ async function startWhatsAppBot() {
               await sock.sendMessage(remoteJid, {
                 text: `ℹ️ État actuel du mode IA : *${aiAutoReplyEnabled ? 'ACTIVÉ' : 'DÉSACTIVÉ'}*.\nUtilisez \`!aimode on\` ou \`!aimode off\`.`
               }, { quoted: msg });
+            }
+            break;
+          }
+
+          // --- Transcription Audio ---
+          case 'transcrire':
+          case 'transcription':
+          case 'audio': {
+            const quotedAudio =
+              msg.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage;
+            if (!quotedAudio) {
+              await sock.sendMessage(
+                remoteJid,
+                { text: '⚠️ Pour transcrire un message vocal, répondez au vocal en écrivant `!transcrire`' },
+                { quoted: msg }
+              );
+              break;
+            }
+
+            await sock.sendMessage(remoteJid, { text: '⏳ Écoute et transcription de l\'audio en cours...' }, { quoted: msg });
+            try {
+              const quotedMsg = {
+                key: {
+                  remoteJid,
+                  id: msg.message.extendedTextMessage.contextInfo.stanzaId
+                },
+                message: { audioMessage: quotedAudio }
+              };
+              const audioBuffer = await downloadMediaMessage(
+                quotedMsg,
+                'buffer',
+                {},
+                { logger, reuploadRequest: sock.updateMediaMessage }
+              );
+              const textTranscribed = await transcribeAudio(audioBuffer, quotedAudio.mimetype);
+              await sock.sendMessage(
+                remoteJid,
+                { text: `📝 *Transcription du vocal* :\n\n"${textTranscribed || 'Audio incompréhensible ou silencieux.'}"` },
+                { quoted: msg }
+              );
+            } catch (err) {
+              console.error('Erreur transcription audio :', err.message);
+              await sock.sendMessage(remoteJid, { text: '⚠️ Échec de la lecture ou transcription de cet audio.' }, { quoted: msg });
             }
             break;
           }
@@ -329,9 +405,10 @@ async function startWhatsAppBot() {
 • *!info* : Informations sur le chat
 • *!echo <texte>* : Répéter un message
 
-🔹 *Intelligence Artificielle* :
+🔹 *Intelligence Artificielle & Audio* :
 • *!ai <question>* : Interroger l'IA (Gemini / LLM)
 • *!aimode on/off* : Activer les réponses IA auto en privé
+• *!transcrire* : Transcrire un vocal (répondez à un vocal avec ce mot)
 
 🔹 *Rappels & Alertes Programmées* :
 • *!rappel <durée> <message>* (ex: \`!rappel 10m Sortir le plat\`)

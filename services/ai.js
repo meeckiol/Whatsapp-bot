@@ -32,7 +32,7 @@ function getHumanSystemPrompt() {
   const owner = getOwnerName();
   return (
     process.env.AI_CUSTOM_PERSONA ||
-`Tu t'appelles ${owner}. Tu réponds à tes messages personnels sur WhatsApp à des amis, camarades de classe ou connaissances.
+`Tu t'appelles ${owner}. Tu réponds à tes messages personnels sur WhatsApp à des amis, camarades ou connaissances.
 
 RÈGLES ABSOLUES ET STRICTES :
 1. Ne dis JAMAIS, sous AUCUN prétexte, que tu es une intelligence artificielle, une IA, un bot, un programme ou un assistant. Tu es une vraie personne (${owner}).
@@ -41,7 +41,7 @@ RÈGLES ABSOLUES ET STRICTES :
 4. Si la personne te demande "Tu es qui ?", "C'est qui ?" ou similaire, réponds simplement : "C'est ${owner} ! Ça va ?" ou "C'est moi, qu'est-ce qu'il y a ?".
 5. Réponds de façon concise et directe (1 à 2 phrases courtes comme un vrai message WhatsApp).
 6. N'utilise pas de listes à puces ni de présentation trop formelle.
-7. Si quelqu'un te demande ce que tu fais ou te propose quelque chose dont tu n'es pas sûr, dis que tu es un peu occupé en ce moment mais que tu le recontactes.`
+7. Si quelqu'un te demande ce que tu fais ou te propose quelque chose dont tu n'es pas sûr, sois bref et dis que tu es un peu occupé en ce moment mais que tu le recontactes.`
   );
 }
 
@@ -78,24 +78,17 @@ async function generateWithFallback(systemInstruction, contents) {
 }
 
 /**
- * Répondre à un message privé comme un être humain (au nom de Dariano)
+ * Répondre à un message texte privé comme un être humain (au nom de Dariano)
  */
 export async function askAsHuman(prompt, remoteJid, senderName = 'Contact') {
-  // Récupérer ou initialiser l'historique de la discussion
   if (!conversationsHistory.has(remoteJid)) {
     conversationsHistory.set(remoteJid, []);
   }
   const history = conversationsHistory.get(remoteJid);
 
-  // Ajouter le nouveau message
   history.push({ role: 'user', text: prompt });
+  if (history.length > 6) history.splice(0, history.length - 6);
 
-  // Conserver au maximum les 6 derniers messages pour garder le contexte
-  if (history.length > 6) {
-    history.splice(0, history.length - 6);
-  }
-
-  // Formater les messages pour l'API Gemini
   const contents = history.map((item) => ({
     role: item.role,
     parts: [{ text: item.text }]
@@ -105,18 +98,89 @@ export async function askAsHuman(prompt, remoteJid, senderName = 'Contact') {
   const reply = await generateWithFallback(systemInstruction, contents);
 
   if (reply) {
-    // Sauvegarder la réponse de Dariano dans l'historique
     history.push({ role: 'model', text: reply });
     return reply;
   }
 
-  // Fallback très naturel en cas de coupure temporaire d'API
   const owner = getOwnerName();
   const lower = prompt.toLowerCase();
   if (lower.includes('qui') || lower.includes('tu es')) {
     return `C'est ${owner} ! Qu'est-ce qu'il y a ?`;
   }
   return `Salut ! Ça va ? Je suis un peu pris là, je te réponds dès que possible.`;
+}
+
+/**
+ * Écouter un message vocal audio reçu et y répondre naturellement
+ */
+export async function askAsHumanWithAudio(audioBuffer, rawMimeType, remoteJid, senderName = 'Contact') {
+  if (!conversationsHistory.has(remoteJid)) {
+    conversationsHistory.set(remoteJid, []);
+  }
+  const history = conversationsHistory.get(remoteJid);
+
+  // Nettoyer le mimetype pour Gemini (ex: audio/ogg; codecs=opus -> audio/ogg)
+  const mimeType = (rawMimeType || 'audio/ogg').split(';')[0].trim();
+  const base64Audio = audioBuffer.toString('base64');
+
+  const historyParts = history.map((item) => ({
+    role: item.role,
+    parts: [{ text: item.text }]
+  }));
+
+  const systemInstruction = getHumanSystemPrompt();
+
+  const userAudioTurn = {
+    role: 'user',
+    parts: [
+      {
+        inlineData: {
+          mimeType,
+          data: base64Audio
+        }
+      },
+      {
+        text: `[${senderName} vient de t'envoyer ce message vocal. Écoute ce qu'il/elle dit dans cet audio et réponds-y directement comme Dariano, sur WhatsApp (court, naturel, amical). Ne dis pas "j'ai écouté ton vocal", réponds directement au sujet comme si tu l'avais entendu.]`
+      }
+    ]
+  };
+
+  const contents = [...historyParts, userAudioTurn];
+  const reply = await generateWithFallback(systemInstruction, contents);
+
+  if (reply) {
+    history.push({ role: 'user', text: `[Message vocal de ${senderName}]` });
+    history.push({ role: 'model', text: reply });
+    if (history.length > 6) history.splice(0, history.length - 6);
+    return reply;
+  }
+
+  return `J'ai bien reçu ton vocal ! Je suis un peu dans le bruit là, je te réponds dès que je peux 😉`;
+}
+
+/**
+ * Transcrire fidèlement un audio en texte
+ */
+export async function transcribeAudio(audioBuffer, rawMimeType) {
+  const mimeType = (rawMimeType || 'audio/ogg').split(';')[0].trim();
+  const contents = [
+    {
+      role: 'user',
+      parts: [
+        {
+          inlineData: {
+            mimeType,
+            data: audioBuffer.toString('base64')
+          }
+        },
+        {
+          text: 'Transcris exactement ce message audio mot à mot en français (ou dans la langue parlée). Ne donne STRICTEMENT que la transcription du texte prononcé, sans commentaire ni introduction.'
+        }
+      ]
+    }
+  ];
+
+  return await generateWithFallback('Tu es un transcripteur audio parfait.', contents);
 }
 
 /**
