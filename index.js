@@ -1,8 +1,12 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import makeWASocket, {
   DisconnectReason,
   useMultiFileAuthState,
   Browsers,
-  downloadMediaMessage
+  downloadMediaMessage,
+  downloadContentFromMessage
 } from '@whiskeysockets/baileys';
 import qrcode from 'qrcode-terminal';
 import pino from 'pino';
@@ -124,12 +128,23 @@ async function startWhatsAppBot() {
         if (!isFromMe && aiAutoReplyEnabled && !isGroup) {
           try {
             await sock.sendPresenceUpdate('recording', remoteJid);
-            const audioBuffer = await downloadMediaMessage(
-              msg,
-              'buffer',
-              {},
-              { logger, reuploadRequest: sock.updateMediaMessage }
-            );
+            let audioBuffer;
+            try {
+              audioBuffer = await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger, reuploadRequest: sock.updateMediaMessage }
+              );
+            } catch (err1) {
+              console.warn('Téléchargement standard échoué, essai direct stream...', err1.message);
+              const stream = await downloadContentFromMessage(audioMessage, 'audio');
+              const chunks = [];
+              for await (const chunk of stream) chunks.push(chunk);
+              audioBuffer = Buffer.concat(chunks);
+            }
+
+            console.log(`✅ Audio téléchargé (${audioBuffer.length} octets). Analyse IA...`);
 
             const aiAnswer = await askAsHumanWithAudio(
               audioBuffer,
@@ -142,7 +157,7 @@ async function startWhatsAppBot() {
               await sock.sendMessage(remoteJid, { text: aiAnswer }, { quoted: msg });
             }
           } catch (err) {
-            console.error('Erreur traitement audio entrant :', err.message);
+            console.error('Erreur traitement audio entrant :', err);
           }
         }
         continue;
@@ -253,12 +268,20 @@ async function startWhatsAppBot() {
                 },
                 message: { audioMessage: quotedAudio }
               };
-              const audioBuffer = await downloadMediaMessage(
-                quotedMsg,
-                'buffer',
-                {},
-                { logger, reuploadRequest: sock.updateMediaMessage }
-              );
+              let audioBuffer;
+              try {
+                audioBuffer = await downloadMediaMessage(
+                  quotedMsg,
+                  'buffer',
+                  {},
+                  { logger, reuploadRequest: sock.updateMediaMessage }
+                );
+              } catch (e1) {
+                const stream = await downloadContentFromMessage(quotedAudio, 'audio');
+                const chunks = [];
+                for await (const chunk of stream) chunks.push(chunk);
+                audioBuffer = Buffer.concat(chunks);
+              }
               const textTranscribed = await transcribeAudio(audioBuffer, quotedAudio.mimetype);
               await sock.sendMessage(
                 remoteJid,
