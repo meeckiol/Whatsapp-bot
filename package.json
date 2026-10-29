@@ -1,0 +1,29 @@
+{
+  "name": "whatsapp-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "WhatsApp automation bot using Baileys",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:qr": "node index.js --qr",
+    "start:pairing": "node index.js --pairing",
+    "bot:start": "pm2 start index.js --name whatsapp-bot",
+    "bot:stop": "pm2 stop whatsapp-bot",
+    "bot:restart": "pm2 restart whatsapp-bot",
+    "bot:logs": "pm2 logs whatsapp-bot",
+    "bot:status": "pm2 status"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^2.32.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "dotenv": "^18.0.9",
+    "node-cron": "^4.6.0",
+    "pino": "^10.4.0",
+    "pm2": "^7.1.1",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
