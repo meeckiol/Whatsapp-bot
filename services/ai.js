@@ -32,17 +32,43 @@ function getHumanSystemPrompt() {
   const owner = getOwnerName();
   return (
     process.env.AI_CUSTOM_PERSONA ||
-`Tu t'appelles ${owner}. Tu réponds à tes messages personnels sur WhatsApp à des amis, camarades ou connaissances.
+`Tu t'appelles ${owner}. Tu réponds à tes messages personnels sur WhatsApp.
 
-RÈGLES ABSOLUES ET STRICTES :
-1. Ne dis JAMAIS, sous AUCUN prétexte, que tu es une intelligence artificielle, une IA, un bot, un programme ou un assistant. Tu es une vraie personne (${owner}).
-2. Ne dis JAMAIS "Comment puis-je t'aider aujourd'hui ?" ni aucune formule de service client ou de robot.
-3. Sois très naturel, amical, sympa et décontracté (style WhatsApp / SMS habituel).
-4. Si la personne te demande "Tu es qui ?", "C'est qui ?" ou similaire, réponds simplement : "C'est ${owner} ! Ça va ?" ou "C'est moi, qu'est-ce qu'il y a ?".
-5. Réponds de façon concise et directe (1 à 2 phrases courtes comme un vrai message WhatsApp).
-6. N'utilise pas de listes à puces ni de présentation trop formelle.
-7. Si quelqu'un te demande ce que tu fais ou te propose quelque chose dont tu n'es pas sûr, sois bref et dis que tu es un peu occupé en ce moment mais que tu le recontactes.`
+STYLE ET RÈGLES DE CONVERSATION STRICTES :
+1. INTERDICTION FORMELLE d'utiliser des expressions comme :
+   - "Qu'est-ce tu racontes ?" ou "Qu'est-ce que tu racontes ?"
+   - "Tu racontes quoi de beau ?"
+   - "Ça dit quoi ?" ou "Quoi de neuf ?"
+   - "Comment puis-je t'aider ?" ou tout jargon d'assistant.
+2. Ne dis JAMAIS que tu es une intelligence artificielle, une IA, un bot ou un assistant. Tu es une vraie personne (${owner}).
+3. Sois sobre, calme, posé et direct :
+   - Si la personne dit "Salut", "Cc" ou "Bonjour", réponds simplement et poliment : "Salut ! Ça va ?" ou "Hello, comment tu vas ?".
+   - Si la personne te pose une question ou te parle d'un sujet, réponds directement à son message sans ajouter de question superflue à la fin.
+   - Ne cherche pas à relancer artificiellement la discussion avec des questions inutiles de remplissage.
+4. Si la personne te demande "Tu es qui ?", réponds sobrement : "C'est ${owner} ! Ça va ?".
+5. Écris des phrases courtes (1 à 2 phrases maximum), propres, matures et naturelles comme un vrai SMS.
+6. Si quelqu'un te demande où tu es ou ce que tu fais et que tu ne sais pas, dis calmement que tu es un peu occupé en ce moment.`
   );
+}
+
+/**
+ * Filtrer et nettoyer les expressions familières indésirables
+ */
+function sanitizeReply(text) {
+  if (!text) return text;
+  let cleaned = text
+    .replace(/qu['’]est-ce\s+(que\s+)?tu\s+racontes\s*(\?|!)?/gi, '')
+    .replace(/tu\s+racontes\s+quoi(\s+de\s+beau)?\s*(\?|!)?/gi, '')
+    .replace(/ça\s+dit\s+quoi\s*(\?|!)?/gi, '')
+    .replace(/quoi\s+de\s+neuf\s*(\?|!)?/gi, '')
+    .trim();
+
+  // Nettoyage ponctuation résiduelle
+  cleaned = cleaned.replace(/\s{2,}/g, ' ');
+  if (/^[,\s!?.-]+$/.test(cleaned) || !cleaned) {
+    cleaned = 'Ça va ?';
+  }
+  return cleaned;
 }
 
 // Fonction de génération avec gestion des modèles de secours (fallback)
@@ -62,7 +88,7 @@ async function generateWithFallback(systemInstruction, contents) {
         model,
         config: {
           systemInstruction,
-          temperature: 0.8
+          temperature: 0.5 // Température modérée pour éviter les dérives familières
         },
         contents
       });
@@ -95,9 +121,10 @@ export async function askAsHuman(prompt, remoteJid, senderName = 'Contact') {
   }));
 
   const systemInstruction = getHumanSystemPrompt();
-  const reply = await generateWithFallback(systemInstruction, contents);
+  const rawReply = await generateWithFallback(systemInstruction, contents);
 
-  if (reply) {
+  if (rawReply) {
+    const reply = sanitizeReply(rawReply);
     history.push({ role: 'model', text: reply });
     return reply;
   }
@@ -105,9 +132,9 @@ export async function askAsHuman(prompt, remoteJid, senderName = 'Contact') {
   const owner = getOwnerName();
   const lower = prompt.toLowerCase();
   if (lower.includes('qui') || lower.includes('tu es')) {
-    return `C'est ${owner} ! Qu'est-ce qu'il y a ?`;
+    return `C'est ${owner} ! Ça va ?`;
   }
-  return `Salut ! Ça va ? Je suis un peu pris là, je te réponds dès que possible.`;
+  return `Salut ! Ça va ? Je suis un peu pris là, je te réponds tout à l'heure.`;
 }
 
 /**
@@ -140,15 +167,16 @@ export async function askAsHumanWithAudio(audioBuffer, rawMimeType, remoteJid, s
         }
       },
       {
-        text: `[${senderName} vient de t'envoyer ce message vocal. Écoute ce qu'il/elle dit dans cet audio et réponds-y directement comme Dariano, sur WhatsApp (court, naturel, amical). Ne dis pas "j'ai écouté ton vocal", réponds directement au sujet comme si tu l'avais entendu.]`
+        text: `[${senderName} vient de t'envoyer ce message vocal. Écoute ce qu'il/elle dit dans cet audio et réponds-y directement comme Dariano, sur WhatsApp (court, naturel, calme). Ne dis pas "j'ai écouté ton vocal", réponds directement au sujet comme si tu l'avais entendu. Pas de formules du type "qu'est-ce tu racontes".]`
       }
     ]
   };
 
   const contents = [...historyParts, userAudioTurn];
-  const reply = await generateWithFallback(systemInstruction, contents);
+  const rawReply = await generateWithFallback(systemInstruction, contents);
 
-  if (reply) {
+  if (rawReply) {
+    const reply = sanitizeReply(rawReply);
     history.push({ role: 'user', text: `[Message vocal de ${senderName}]` });
     history.push({ role: 'model', text: reply });
     if (history.length > 6) history.splice(0, history.length - 6);
